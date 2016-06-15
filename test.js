@@ -1,8 +1,9 @@
 import test from 'tape'
-import { useStrict, autorun, observable } from 'mobx'
+import { useStrict, autorun, toJS } from 'mobx'
 import { map } from 'ramda'
-import { makeApp } from './src/factories'
+import { makeTransforms } from './src/transforms'
 import fromJS from './src/fromJS'
+import { trace } from './src/utils'
 
 // Only allow mutations inside actions
 useStrict(true)
@@ -10,66 +11,59 @@ useStrict(true)
 test('functional example', (t) => {
   // Serialized JSON state to simulate SSR.
   const json = {
-    domain: {
-      collections: [{ id: 1000, name: 'FP' }, { id: 1001, name: 'Programming' }],
-      posts: [{ id: 1, title: 'Boundaries', collection: { id: 1001 }, user: { id: 10 } }],
-      users: [{ id: 10, name: 'Gary Bernhardt' }, { id: 9, name: 'Uncle Bob' }],
-      hubs: [{ id: 100, name: 'Software Engineering Talks', account: { type: 'user', id: 9 } }]
-    },
-    ui: {
-      feed: {
-        collections: [{ id: 1000 }, { id: 1001 }],
-        hub: { id: 100 },
-        posts: [{ id: 1 }],
-        spotlight: { id: 1 }
-      }
+    talks: [{ id: 1, title: 'Boundaries', user: { id: 10 } }],
+    users: [{ id: 10, name: 'Gary Bernhardt' }, { id: 9, name: 'Uncle Bob' }],
+    feed: {
+      talks: [{ id: 1 }],
+      spotlight: { id: 1 }
     }
   }
 
   // Hydrate store from serialized JSON.
-  const store = fromJS(json)
+  const stores = fromJS(json)
 
-  // Wrap app in an autorun so updates to store are observed
-  let app
-  autorun(() => app = makeApp(store))
+  // Wrap UI in an autorun so updates to store are observed
+  let display
+  autorun(() => display = makeTransforms(stores))
 
   // 1. Ensure initial state is correct
-  t.deepEqual(app.feed.posts, [{
+  t.deepEqual(display.feed$.talks, [{
     id: 1, title: 'Boundaries',
-    collection: { id: 1001, name: 'Programming' },
     user: { id: 10, name: 'Gary Bernhardt' }
-  }], 'posts are set')
-  t.equal(app.feed.spotlight.title, 'Boundaries', 'spotlight is set')
-  t.equal(app.feed.spotlight.collection.name, 'Programming', 'spotlight collection is set')
-  t.equal(app.feed.spotlight.user.name, 'Gary Bernhardt', 'spotlight user is set')
-  t.equal(app.feed.hub.name, 'Software Engineering Talks', 'current hub is set')
-  t.equal(app.feed.hub.account.name, 'Uncle Bob', 'current hub\'s account is set')
+  }], 'talks are set')
+  t.equal(display.feed$.spotlight.title, 'Boundaries', 'spotlight is set')
+  t.equal(display.feed$.spotlight.user.name, 'Gary Bernhardt', 'spotlight user is set')
+
+  stores.talks.updateTalk({ id: 1, title: 'Wat' })
+  t.equal(display.feed$.spotlight.title, 'Wat', 'spotlight is updated')
 
   // Push new values into state
-  app.users.add({ id: 11, name: 'Rich Hickey' })
+  stores.users.add({ id: 11, name: 'Rich Hickey' })
 
-  // Update spotlight to newly added post
-  // app.feed.updateSpotlight({ id: 2 })
+  // Update spotlight to newly added talk
+  stores.feed.updateSpotlight({ id: 2 })
 
-  // Replace existing posts
-  app.feed.requestPosts(100)
+  // Replace existing talks
+  stores.feed.requestTalks()
 
   // Push to next tick due to async request.
   // Note: Promises in current tick will resolve at end of the current tick.
   setTimeout(() => {
-    t.deepEqual(map(p => p.title, app.feed.posts), [
+    t.deepEqual(map(p => p.title, display.feed$.talks), [
       'Boundaries',
       'Value of Values',
       'Simple Made Easy'
-    ], 'posts are updated')
+    ], 'talks are updated')
 
-    // t.equal(app.feed.spotlight.title, 'Value of Values', 'spotlight is updated')
-    // t.equal(app.feed.spotlight.collection.name, 'FP', 'spotlight collection is updated')
-    // t.equal(app.feed.spotlight.user.name, 'Rich Hickey', 'spotlight user is updated')
+    t.equal(display.feed$.spotlight.title, 'Value of Values', 'spotlight is updated')
+    t.equal(display.feed$.spotlight.user.name, 'Rich Hickey', 'spotlight user is updated')
 
-    // app.feed.updateSpotlight({ id: 3 })
-    // t.equal(app.feed.spotlight.title, 'Simple Made Easy', 'spotlight is updated')
+    stores.feed.updateSpotlight({ id: 3 })
+    t.equal(display.feed$.spotlight.title, 'Simple Made Easy', 'spotlight is updated')
+
+    const display2 = makeTransforms(fromJS(toJS(stores)))
+    t.deepEqual(toJS(display), toJS(display2), 'toJS and fromJS are isomorphic')
 
     t.end()
-  }, 100)
+  })
 })

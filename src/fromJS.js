@@ -1,8 +1,11 @@
-import { observable } from 'mobx'
+import { action } from 'mobx'
+import { makeStores } from './stores'
 
-// Rehydrating from JS object, which is just making it observable for now.
+// Rehydrating from JS object, which just calls makeStores.
 // Could have more logic in here in the future.
 // fromJS :: JSON -> Store
-const fromJS = observable
+const fromJS = action((json) => {
+  return makeStores(json)
+})
 
 export default fromJS
